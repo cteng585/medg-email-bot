@@ -2,10 +2,8 @@
 
 import csv
 import io
+import re
 from datetime import date, datetime
-
-from .storage import new_id
-
 
 def _cell(value):
     if value is None:
@@ -19,16 +17,17 @@ def _cell(value):
     return str(value).strip()
 
 
-def _table_from_text(text):
-    text = text.lstrip("﻿")
-    sample = text[:5000]
-    if "\t" in sample:
-        delimiter = "\t"
-    else:
-        try:
-            delimiter = csv.Sniffer().sniff(sample, delimiters=",;").delimiter
-        except csv.Error:
-            delimiter = ","
+def _table_from_text(text, delimiter=None):
+    text = text.lstrip("\ufeff")
+    if delimiter is None:
+        sample = text[:5000]
+        if "\t" in sample:
+            delimiter = "\t"
+        else:
+            try:
+                delimiter = csv.Sniffer().sniff(sample, delimiters=",;").delimiter
+            except csv.Error:
+                delimiter = ","
     return list(csv.reader(io.StringIO(text), delimiter=delimiter))
 
 
@@ -48,59 +47,70 @@ def _table_from_xlsx(data):
 
 def _kind(header):
     h = header.lower().replace("-", "").replace("_", " ").strip()
-    if h in ("cc", "copy to", "cc email"):
+    if re.search(r"\bcc\b", h) or h in ("copy to", "carbon copy"):
         return "cc"
     if "email" in h or h in ("to", "address"):
         return "email"
     return None
 
 
+def _decode(data):
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
 def parse(filename=None, data=None, text=None):
-    """Return {"columns": [...], "rows": [...]} ready for the recipient table."""
+    """Read a spreadsheet into {"headers", "rows", "email_col", "cc_col"}.
+
+    Rows are lists of strings lined up with headers. email_col / cc_col are the
+    best guesses at those columns (or None); the person importing confirms them.
+    """
+    name = (filename or "").lower()
     if text is not None:
         table = _table_from_text(text)
-    elif filename and filename.lower().endswith((".xlsx", ".xlsm")):
+    elif name.endswith((".xlsx", ".xlsm")):
         table = _table_from_xlsx(data)
-    else:
-        raw = data or b""
+    elif name.endswith((".tsv", ".tab")):
+        table = _table_from_text(_decode(data or b""), delimiter="\t")
+    elif name.endswith(".csv"):
+        decoded = _decode(data or b"")
         try:
-            decoded = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            decoded = raw.decode("cp1252", errors="replace")
-        table = _table_from_text(decoded)
+            delimiter = csv.Sniffer().sniff(decoded[:5000], delimiters=",;").delimiter
+        except csv.Error:
+            delimiter = ","
+        table = _table_from_text(decoded, delimiter=delimiter)
+    else:
+        table = _table_from_text(_decode(data or b""))
 
     table = [[_cell(c) for c in row] for row in table]
     table = [row for row in table if any(row)]
     if not table:
         raise ValueError("The file or pasted text didn't contain any rows.")
+    if len(table) < 2:
+        raise ValueError("Only one row was found. Make sure you include the title row and at least one person.")
 
-    headers = table[0]
     width = max(len(r) for r in table)
-    headers += [""] * (width - len(headers))
+    headers = table[0] + [""] * (width - len(table[0]))
     headers = [h or f"Column {i + 1}" for i, h in enumerate(headers)]
+    # Duplicate titles would overwrite each other, so number the repeats.
+    seen = {}
+    for i, h in enumerate(headers):
+        key = h.lower()
+        if key in seen:
+            seen[key] += 1
+            headers[i] = f"{h} ({seen[key]})"
+        else:
+            seen[key] = 1
+    rows = [r + [""] * (width - len(r)) for r in table[1:]]
 
     email_col = next((i for i, h in enumerate(headers) if _kind(h) == "email"), None)
-    cc_col = next((i for i, h in enumerate(headers) if _kind(h) == "cc"), None)
+    cc_col = next((i for i, h in enumerate(headers) if _kind(h) == "cc" and i != email_col), None)
     if email_col is None:
-        # No header row with "email" in it: look for a column of addresses instead.
-        for i in range(width):
-            if sum("@" in (r[i] if i < len(r) else "") for r in table[1:]) > 0:
-                email_col = i
-                break
-    if email_col is None:
-        raise ValueError("Couldn't find an email column. Make sure one column is titled “Email”.")
+        # No title with "email" in it: pick the column with the most addresses.
+        counts = [sum("@" in r[i] for r in rows) for i in range(width)]
+        if max(counts) > 0:
+            email_col = counts.index(max(counts))
 
-    columns = [h for i, h in enumerate(headers) if i not in (email_col, cc_col)]
-    rows = []
-    for r in table[1:]:
-        r = r + [""] * (width - len(r))
-        rows.append({
-            "id": new_id(),
-            "include": True,
-            "email": r[email_col],
-            "cc": r[cc_col] if cc_col is not None else "",
-            "fields": {h: r[i] for i, h in enumerate(headers) if i not in (email_col, cc_col)},
-            "addendums": [],
-            "note": "",
-        })
-    return {"columns": columns, "rows": rows}
+    return {"headers": headers, "rows": rows, "email_col": email_col, "cc_col": cc_col}

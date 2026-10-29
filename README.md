@@ -37,10 +37,12 @@ If the browser doesn't open by itself, go to <http://127.0.0.1:5050>.
    - **Extra paragraphs (addendums)** are for text only *some* people should get, like "Late payment reminder". Put `{Addendums}` in the letter where they should appear. If you leave it out, they're added at the end.
    - You can save several letters and switch between them.
 3. **Add recipients.**
-   - Easiest way: in Excel, select your rows **including the title row**, copy, then click **Paste from Excel** here. You can also open a `.xlsx` or `.csv` file.
+   - Easiest way: in Excel, select your rows **including the title row**, copy, then click **Paste from Excel** here. You can also open an Excel (`.xlsx`), `.csv`, or `.tsv` file.
+   - Before anything is added, a window shows every column with a few example values. Check which column has the email addresses (and the CC column, if any), untick any columns you don't need, and choose whether to replace the current list or add to it.
    - You need one column titled **Email**. A column titled **CC** is optional. Every other column (e.g. *First Name*, *Organization*) becomes a `{…}` detail you can use in the letter.
    - In the **Extras** column, tick which extra paragraphs each person gets, or add a personal note just for them.
    - Untick **Send?** to leave someone out without deleting them.
+   - To get rid of columns you don't need, click **Remove columns**, tick them, and click **Remove**. Changed your mind? Click **Undo** in the message that appears.
 4. **Review & send.**
    - Click through every email to see exactly what each person will get.
    - Anything marked **Needs fixing** (red) must be fixed before you can send, e.g. a missing email address or a `{Detail}` with no matching column.

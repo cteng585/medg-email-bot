@@ -32,13 +32,17 @@ async function api(method, url, body) {
 }
 
 let toastTimer;
-function toast(msg, isError = false) {
+// action: optional { label, run } shown as a button in the message (e.g. Undo).
+function toast(msg, isError = false, action = null) {
   const t = $("#toast");
-  t.textContent = msg;
+  t.replaceChildren(msg);
+  if (action) {
+    t.append(el("button", { onclick: () => { t.hidden = true; action.run(); } }, action.label));
+  }
   t.className = "toast" + (isError ? " error" : "");
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), isError ? 7000 : 3000);
+  toastTimer = setTimeout(() => (t.hidden = true), isError || action ? 8000 : 3000);
 }
 const fail = (e) => toast(e.message || String(e), true);
 
@@ -503,12 +507,8 @@ async function renameColumn(old) {
   renderRecipients();
 }
 
-async function removeColumn(c) {
-  if (!(await confirmBox(`Remove the “${c}” column?`, "The information in this column will be deleted for everyone in the list.", "Remove column"))) return;
-  state.recipients.columns = state.recipients.columns.filter((x) => x !== c);
-  for (const r of state.recipients.rows) delete r.fields[c];
-  saveSoon();
-  renderRecipients();
+function removeColumn(c) {
+  removeColumns(new Set([c]));
 }
 
 $("#col-add").onclick = async () => {
@@ -539,29 +539,134 @@ $("#rows-clear").onclick = async () => {
   }
 };
 
-function applyImport(imported, replace) {
-  const rec = state.recipients;
-  if (replace) {
-    rec.columns = imported.columns;
-    rec.rows = imported.rows;
-  } else {
-    for (const c of imported.columns) if (!rec.columns.includes(c)) rec.columns.push(c);
-    rec.rows.push(...imported.rows);
-    for (const r of rec.rows) for (const c of rec.columns) r.fields[c] ??= "";
-  }
-  saveSoon();
-  renderRecipients();
-  toast(`Added ${imported.rows.length} ${imported.rows.length === 1 ? "person" : "people"}.`);
+// Lower-cased {Field} names the current letter uses, to flag columns it needs.
+function fieldsUsedByLetter() {
+  const l = letter();
+  const texts = [l.subject, l.body, l.signature, ...l.addendums.map((a) => a.text)];
+  const used = new Set();
+  for (const t of texts) for (const m of (t || "").matchAll(/\{\s*([^{}\n]+?)\s*\}/g)) used.add(m[1].toLowerCase());
+  return used;
 }
 
+// ----- import: pick columns -----
+
+let importing = null; // { headers, rows, source }
+
+function openImportDialog(table, source) {
+  importing = { ...table, source };
+  const optionsFor = (select, chosen, allowNone) => {
+    fill(select,
+      allowNone ? el("option", { value: "" }, "No CC column") : null,
+      chosen == null && !allowNone ? el("option", { value: "", selected: true }, "Choose a column…") : null,
+      table.headers.map((h, i) => el("option", { value: i, selected: i === chosen }, h)));
+  };
+  optionsFor($("#import-email"), table.email_col, false);
+  optionsFor($("#import-cc"), table.cc_col, true);
+
+  const people = table.rows.length;
+  $("#import-source").textContent =
+    `${source}: ${people} ${people === 1 ? "person" : "people"}, ${table.headers.length} columns.`;
+  const hasPeople = state.recipients.rows.some((r) => r.email);
+  $("#import-mode").hidden = !hasPeople;
+  document.querySelector('input[name="import-mode"][value="replace"]').checked = true;
+  renderImportColumns(true);
+  $("#import-dialog").showModal();
+}
+
+function renderImportColumns(checkAll = false) {
+  const { headers, rows } = importing;
+  const emailCol = $("#import-email").value;
+  const ccCol = $("#import-cc").value;
+  const used = fieldsUsedByLetter();
+  const previous = new Set(
+    [...document.querySelectorAll("#import-columns input:checked")].map((i) => i.value));
+
+  fill($("#import-columns"), headers.map((h, i) => {
+    const role = String(i) === emailCol ? "Email" : String(i) === ccCol ? "CC" : null;
+    const samples = rows.map((r) => r[i]).filter((v) => v).slice(0, 3).join(" · ") || "(empty)";
+    const box = el("input", {
+      type: "checkbox", value: i, disabled: !!role,
+      checked: !!role || checkAll || previous.has(String(i)),
+      onchange: updateImportButton,
+    });
+    return el("label", { class: role ? "fixed" : "" },
+      box,
+      el("span", { class: "name" }, h),
+      el("span", { class: "samples", title: samples }, samples),
+      role ? el("span", { class: "tag" }, `${role} column`)
+        : used.has(h.toLowerCase()) ? el("span", { class: "tag" }, "Used in your letter") : el("span"));
+  }));
+  updateImportButton();
+}
+
+function importSelection() {
+  const emailCol = $("#import-email").value;
+  const ccCol = $("#import-cc").value;
+  const cols = [...document.querySelectorAll("#import-columns input:checked:not(:disabled)")]
+    .map((i) => Number(i.value));
+  return { emailCol: emailCol === "" ? null : Number(emailCol), ccCol: ccCol === "" ? null : Number(ccCol), cols };
+}
+
+function updateImportButton() {
+  const { emailCol } = importSelection();
+  const problem = $("#import-problem");
+  problem.hidden = emailCol != null;
+  problem.textContent = "Choose which column has the email addresses.";
+  const n = importing.rows.length;
+  $("#import-ok").textContent = `Import ${n} ${n === 1 ? "person" : "people"}`;
+  $("#import-ok").disabled = emailCol == null;
+}
+
+$("#import-email").onchange = () => renderImportColumns();
+$("#import-cc").onchange = () => renderImportColumns();
+$("#import-all").onclick = () => {
+  document.querySelectorAll("#import-columns input:not(:disabled)").forEach((i) => (i.checked = true));
+  updateImportButton();
+};
+$("#import-none").onclick = () => {
+  document.querySelectorAll("#import-columns input:not(:disabled)").forEach((i) => (i.checked = false));
+  updateImportButton();
+};
+$("#import-cancel").onclick = () => $("#import-dialog").close();
+
+$("#import-ok").onclick = () => {
+  const { emailCol, ccCol, cols } = importSelection();
+  if (emailCol == null) return;
+  const names = cols.map((i) => importing.headers[i]);
+  const rows = importing.rows
+    .filter((r) => r[emailCol] || cols.some((i) => r[i]))
+    .map((r) => ({
+      id: newId(), include: true,
+      email: r[emailCol].trim(),
+      cc: ccCol == null ? "" : r[ccCol],
+      fields: Object.fromEntries(cols.map((i) => [importing.headers[i], r[i]])),
+      addendums: [], note: "",
+    }));
+  const replace = $("#import-mode").hidden ||
+    document.querySelector('input[name="import-mode"]:checked').value === "replace";
+  $("#import-dialog").close();
+
+  const rec = state.recipients;
+  if (replace) {
+    rec.columns = names;
+    rec.rows = rows;
+  } else {
+    for (const c of names) if (!rec.columns.some((x) => x.toLowerCase() === c.toLowerCase())) rec.columns.push(c);
+    rec.rows.push(...rows);
+  }
+  for (const r of rec.rows) for (const c of rec.columns) if (!(c in r.fields)) r.fields[c] = "";
+  saveSoon();
+  renderRecipients();
+  toast(`Added ${rows.length} ${rows.length === 1 ? "person" : "people"}.`);
+};
+
 $("#paste-open").onclick = () => { $("#paste-text").value = ""; $("#paste-dialog").showModal(); };
-$("#paste-cancel").onclick = (e) => { e.preventDefault(); $("#paste-dialog").close(); };
-$("#paste-ok").onclick = async (e) => {
-  e.preventDefault();
+$("#paste-cancel").onclick = () => $("#paste-dialog").close();
+$("#paste-ok").onclick = async () => {
   try {
-    const imported = await api("POST", "/api/import", { text: $("#paste-text").value });
+    const table = await api("POST", "/api/import", { text: $("#paste-text").value });
     $("#paste-dialog").close();
-    applyImport(imported, $("#paste-replace").checked);
+    openImportDialog(table, "Pasted rows");
   } catch (err) { fail(err); }
 };
 
@@ -572,12 +677,67 @@ $("#import-file").onchange = async (e) => {
   const fd = new FormData();
   fd.append("file", file);
   try {
-    const imported = await api("POST", "/api/import", fd);
-    const replace = !state.recipients.rows.some((r) => r.email) ||
-      await confirmBox("Replace the current list?", `Choose OK to replace the current list with the people in “${file.name}”, or Cancel to add them to the end.`, "Replace");
-    applyImport(imported, replace);
+    openImportDialog(await api("POST", "/api/import", fd), `“${file.name}”`);
   } catch (err) { fail(err); }
 };
+
+// ----- remove several columns at once -----
+
+function renderColumnsDialog() {
+  const { columns, rows } = state.recipients;
+  const used = fieldsUsedByLetter();
+  fill($("#columns-list"), columns.length ? columns.map((c) => {
+    const filled = rows.filter((r) => (r.fields[c] || "").trim()).length;
+    return el("label", {},
+      el("input", { type: "checkbox", value: c, onchange: updateColumnsDialog }),
+      el("span", { class: "name" }, c),
+      el("span", { class: "samples" }, `${filled} of ${rows.length} filled in`),
+      used.has(c.toLowerCase()) ? el("span", { class: "tag" }, "Used in your letter") : el("span"));
+  }) : el("p", { class: "muted", style: "padding: .75rem" }, "There are no columns to remove."));
+  updateColumnsDialog();
+}
+
+function updateColumnsDialog() {
+  const chosen = [...document.querySelectorAll("#columns-list input:checked")].map((i) => i.value);
+  const used = fieldsUsedByLetter();
+  const needed = chosen.filter((c) => used.has(c.toLowerCase()));
+  const warning = $("#columns-warning");
+  warning.hidden = !needed.length;
+  warning.textContent = `Your letter uses ${needed.map((c) => `{${c}}`).join(", ")}. ` +
+    "If you remove " + (needed.length === 1 ? "it" : "them") + ", those emails will be marked “Needs fixing” in step 4.";
+  const btn = $("#cols-remove");
+  btn.disabled = !chosen.length;
+  btn.textContent = chosen.length ? `Remove ${chosen.length} ${chosen.length === 1 ? "column" : "columns"}` : "Remove";
+}
+
+$("#cols-manage").onclick = () => { renderColumnsDialog(); $("#columns-dialog").showModal(); };
+$("#cols-cancel").onclick = () => $("#columns-dialog").close();
+$("#cols-all").onclick = () => {
+  document.querySelectorAll("#columns-list input").forEach((i) => (i.checked = true));
+  updateColumnsDialog();
+};
+$("#cols-none").onclick = () => {
+  document.querySelectorAll("#columns-list input").forEach((i) => (i.checked = false));
+  updateColumnsDialog();
+};
+$("#cols-remove").onclick = () => {
+  const chosen = new Set([...document.querySelectorAll("#columns-list input:checked")].map((i) => i.value));
+  $("#columns-dialog").close();
+  removeColumns(chosen);
+};
+
+function removeColumns(names) {
+  const rec = state.recipients;
+  const before = JSON.parse(JSON.stringify(rec));
+  rec.columns = rec.columns.filter((c) => !names.has(c));
+  for (const r of rec.rows) for (const c of names) delete r.fields[c];
+  saveSoon();
+  renderRecipients();
+  toast(`Removed ${names.size} ${names.size === 1 ? "column" : "columns"}.`, false, {
+    label: "Undo",
+    run: () => { state.recipients = before; saveSoon(); renderRecipients(); },
+  });
+}
 
 // ---------- step 4: review & send ----------
 

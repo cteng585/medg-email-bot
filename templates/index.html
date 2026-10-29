@@ -117,9 +117,10 @@
     <h1>Who should get it?</h1>
     <div class="toolbar">
       <button id="paste-open" class="primary">📋 Paste from Excel</button>
-      <label class="button-like">📂 Open a spreadsheet file<input type="file" id="import-file" accept=".csv,.xlsx,.xlsm,.txt" hidden></label>
+      <label class="button-like">📂 Open a spreadsheet file<input type="file" id="import-file" accept=".csv,.tsv,.tab,.txt,.xlsx,.xlsm" hidden></label>
       <button id="row-add">+ Add a person</button>
       <button id="col-add">+ Add a column</button>
+      <button id="cols-manage">☰ Remove columns</button>
       <span class="grow"></span>
       <button id="rows-clear" class="danger-link">Clear list</button>
     </div>
@@ -158,10 +159,54 @@
   <h2>Paste from Excel or Google Sheets</h2>
   <p>In your spreadsheet, select the rows <b>including the title row</b> (e.g. Email, First Name, …), copy them, and paste below.</p>
   <textarea id="paste-text" rows="10" placeholder="Paste here (Ctrl+V or ⌘V)"></textarea>
-  <label class="check"><input type="checkbox" id="paste-replace" checked> Replace the current list (untick to add to it)</label>
   <div class="dialog-buttons">
-    <button value="cancel" formmethod="dialog" id="paste-cancel">Cancel</button>
-    <button class="primary" id="paste-ok">Add these people</button>
+    <button id="paste-cancel">Cancel</button>
+    <button class="primary" id="paste-ok">Next: choose columns →</button>
+  </div>
+</dialog>
+
+<dialog id="import-dialog" class="wide">
+  <h2>Choose what to bring in</h2>
+  <p id="import-source" class="muted"></p>
+  <div class="row">
+    <label class="grow">Which column has the email addresses?
+      <select id="import-email"></select>
+    </label>
+    <label class="grow">CC column <small class="muted">(optional)</small>
+      <select id="import-cc"></select>
+    </label>
+  </div>
+  <div class="picker-head">
+    <b>Other columns to bring in</b>
+    <span class="grow"></span>
+    <button class="link" id="import-all">Select all</button>
+    <button class="link" id="import-none">Select none</button>
+  </div>
+  <div id="import-columns" class="column-picker"></div>
+  <div id="import-mode" class="import-mode">
+    <label class="check"><input type="radio" name="import-mode" value="replace" checked> Replace the current list</label>
+    <label class="check"><input type="radio" name="import-mode" value="add"> Add these people to the current list</label>
+  </div>
+  <p id="import-problem" class="fail" hidden></p>
+  <div class="dialog-buttons">
+    <button id="import-cancel">Cancel</button>
+    <button class="primary" id="import-ok">Import</button>
+  </div>
+</dialog>
+
+<dialog id="columns-dialog" class="wide">
+  <h2>Remove columns</h2>
+  <p class="muted">Tick the columns you don't need, then click Remove. The information in them is deleted for everyone in the list.</p>
+  <div class="picker-head">
+    <span class="grow"></span>
+    <button class="link" id="cols-all">Select all</button>
+    <button class="link" id="cols-none">Select none</button>
+  </div>
+  <div id="columns-list" class="column-picker"></div>
+  <p id="columns-warning" class="fail" hidden></p>
+  <div class="dialog-buttons">
+    <button id="cols-cancel">Cancel</button>
+    <button class="primary danger" id="cols-remove" disabled>Remove</button>
   </div>
 </dialog>
 

@@ -172,6 +172,26 @@ dialog {
 }
 dialog::backdrop { background: rgba(20, 25, 35, .45); }
 dialog h2 { margin-top: 0; }
+dialog.wide { width: min(860px, 94vw); }
+dialog .row label { margin-bottom: .75rem; }
+.picker-head { display: flex; align-items: center; gap: .5rem; margin: .25rem 0 .4rem; }
+button.link { border: 0; background: none; color: var(--accent); padding: .2rem .4rem; font-size: .92rem; }
+button.link:hover { text-decoration: underline; }
+.column-picker { border: 1px solid var(--line); border-radius: 8px; max-height: 45vh; overflow: auto; }
+.column-picker label {
+  display: grid; grid-template-columns: 1.2rem minmax(7rem, 14rem) minmax(0, 1fr) 9.5rem; gap: .75rem; align-items: center;
+  margin: 0; padding: .5rem .75rem; border-bottom: 1px solid var(--line); font-weight: 400; cursor: pointer;
+}
+.column-picker label:last-child { border-bottom: 0; }
+.column-picker label:hover { background: var(--bg); }
+.column-picker label.fixed { cursor: default; color: var(--muted); }
+.column-picker .name { font-weight: 600; word-break: break-word; }
+.column-picker .samples { color: var(--muted); font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.column-picker .tag { justify-self: end; }
+.tag { font-size: .78rem; padding: .05rem .5rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.import-mode { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; margin-top: 1rem; }
+button.primary.danger { background: var(--bad); border-color: var(--bad); }
+.toast button { margin-left: .75rem; padding: .15rem .6rem; background: transparent; color: #fff; border-color: rgba(255,255,255,.6); }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
 
 .toast {

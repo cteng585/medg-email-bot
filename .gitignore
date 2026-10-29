@@ -1,5 +1,48 @@
-.venv/
+# ---- Your data: letters, recipient lists, send history, Outlook settings ----
+# data/ holds workspace.json (letters + recipients), send_log.csv, sent.json,
+# config.json (client ID, your test address), token_cache.json (Microsoft
+# sign-in tokens), and attachments/. Never publish it.
 data/
+token_cache*.json
+
+# Recipient spreadsheets and exported emails people may drop in the folder.
+*.csv
+*.tsv
+*.tab
+*.xlsx
+*.xlsm
+*.xls
+*.eml
+*.msg
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ---- Setup made by start.command / start.bat ----
+.venv/
+venv/
+*.log
+
+# ---- Python ----
 __pycache__/
-*.pyc
+*.py[cod]
+
+# ---- Local tool and editor settings (contain paths on this computer) ----
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# ---- Unrelated personal files ----
+.Rhistory
+.RData
+.Rproj.user/
+
+# ---- macOS / Windows ----
 .DS_Store
+Thumbs.db

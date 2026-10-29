@@ -24,9 +24,25 @@
   <!-- STEP 1 -->
   <section id="step-connect" class="step">
     <h1>Connect your Outlook account</h1>
+    <div class="card">
+      <p class="big-status">How should emails be sent?</p>
+      <div class="methods">
+        <label class="method" id="method-mac">
+          <input type="radio" name="method" value="mac_app">
+          <span><b>Outlook app on this Mac</b><br>
+            <small class="muted">Uses the account already in your Outlook app. No extra setup.</small></span>
+        </label>
+        <label class="method">
+          <input type="radio" name="method" value="graph">
+          <span><b>Sign in with Microsoft</b><br>
+            <small class="muted">Works on any computer, even with Outlook closed. Needs a one-time setup by IT.</small>
+            <small class="fail" id="graph-missing" hidden><br>Not available: part of Email Bot's setup is missing. Restart Email Bot while connected to the internet.</small></span>
+        </label>
+      </div>
+    </div>
     <div id="connect-body"></div>
     <details class="card subtle" id="connect-settings">
-      <summary>Connection settings (one-time setup)</summary>
+      <summary>Microsoft sign-in settings (one-time setup)</summary>
       <p>These come from the app registration in Microsoft's Azure portal. The <b>README</b> file walks through getting them in about 5 minutes. You only do this once.</p>
       <label>Application (client) ID
         <input id="client-id" placeholder="e.g. 1a2b3c4d-1234-5678-9abc-def012345678">
@@ -38,11 +54,15 @@
           <option value="organizations">Work or school accounts only</option>
         </select>
       </label>
+      <button class="primary" id="save-settings">Save settings</button>
+    </details>
+    <details class="card subtle">
+      <summary>Sending speed</summary>
       <label>Seconds to wait between emails
         <input id="delay" type="number" min="0" max="60" step="1">
         <small class="muted">Outlook limits how fast you can send. 3 seconds is a safe default.</small>
       </label>
-      <button class="primary" id="save-settings">Save settings</button>
+      <button class="primary" id="save-delay">Save</button>
     </details>
   </section>
 

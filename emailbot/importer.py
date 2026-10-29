@@ -33,7 +33,13 @@ def _table_from_text(text):
 
 
 def _table_from_xlsx(data):
-    from openpyxl import load_workbook
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise ValueError(
+            "Opening Excel files isn't available because part of Email Bot's setup is missing. "
+            "Use “Paste from Excel” instead, or save the file as CSV and open that."
+        ) from None
 
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.worksheets[0]

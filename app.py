@@ -4,7 +4,9 @@ Run it with:  python app.py   (or double-click start.command / start.bat)
 It only listens on this computer (127.0.0.1); nobody else on the network can reach it.
 """
 
+import logging
 import os
+import socket
 import threading
 import time
 import webbrowser
@@ -183,7 +185,7 @@ class SendJob:
             if i and delay:
                 time.sleep(delay)
             try:
-                outlook.send(e["to"], e["cc"], e["subject"], e["html"], files)
+                outlook.send(e["to"], e["cc"], e["subject"], e["html"], e["text"], files)
                 ok, err = True, ""
                 if not test:
                     storage.mark_sent(letter["id"], e["to"])
@@ -206,9 +208,12 @@ def send():
     body = request.get_json() or {}
     letter, emails = build_emails(body.get("letter_id"), body.get("resend", False))
     if body.get("test"):
-        me = outlook.status()["account"]
+        status = outlook.status()
+        me = status["test_address"]
+        if not status["ready"]:
+            raise OutlookError("Outlook isn't set up yet. Go to step 1.")
         if not me:
-            raise OutlookError("Sign in to Outlook first (step 1).")
+            raise OutlookError("Enter your own email address in step 1 so the test has somewhere to go.")
         chosen = next((e for e in emails if e["row_id"] == body.get("row_id")), None) or (emails or [None])[0]
         if not chosen:
             raise ValueError("Add at least one recipient so there's something to test.")
@@ -220,8 +225,8 @@ def send():
         to_send = [e for e in emails if e["will_send"]]
         if not to_send:
             raise ValueError("There's nobody left to send to.")
-        if not outlook.status()["signed_in"]:
-            raise OutlookError("Sign in to Outlook first (step 1).")
+        if not outlook.status()["ready"]:
+            raise OutlookError("Outlook isn't set up yet. Go to step 1.")
         job.start(letter, to_send, test=False)
     return jsonify(job.state)
 
@@ -258,12 +263,21 @@ def outlook_settings():
         changes["client_id"] = body["client_id"].strip()
     if "tenant" in body:
         changes["tenant"] = body["tenant"].strip() or "common"
+    if body.get("method") in ("mac_app", "graph"):
+        changes["method"] = body["method"]
+    if "my_email" in body:
+        changes["my_email"] = body["my_email"].strip()
     if "delay_seconds" in body:
         changes["delay_seconds"] = max(0, min(60, float(body["delay_seconds"])))
     if "client_id" in changes or "tenant" in changes:
         outlook.logout()
     outlook.save_config(**changes)
     return jsonify(outlook.status())
+
+
+@app.post("/api/outlook/check")
+def outlook_check():
+    return jsonify({"version": outlook.check_mac_app()})
 
 
 @app.post("/api/outlook/login")
@@ -280,7 +294,21 @@ def outlook_logout():
 
 if __name__ == "__main__":
     url = f"http://127.0.0.1:{PORT}"
+    open_browser = not os.environ.get("EMAILBOT_NO_BROWSER")
+    try:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", PORT))
+    except OSError:
+        # Most likely Email Bot is already running in another window.
+        print(f"\n  Email Bot already seems to be running. Opening {url}\n"
+              "  If the page doesn't load, close the other Email Bot window and try again.\n")
+        if open_browser:
+            webbrowser.open(url)
+        raise SystemExit(0)
     print(f"\n  Email Bot is running at {url}\n  Keep this window open while you use it. Close it to stop.\n")
-    if not os.environ.get("EMAILBOT_NO_BROWSER"):
+    # Hide the per-request log and the "development server" warning, which only
+    # alarm non-technical users. Errors still show.
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=PORT, threaded=True)

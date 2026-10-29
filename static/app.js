@@ -147,20 +147,34 @@ async function refreshOutlook() {
   }
 }
 
+const usingMacApp = () => outlook.method === "mac_app";
+
 function renderOutlook() {
   const pill = $("#outlook-pill");
-  pill.textContent = outlook.signed_in ? `Connected: ${outlook.account}` : "Outlook not connected";
-  pill.classList.toggle("ok", !!outlook.signed_in);
+  pill.textContent = !outlook.ready ? "Outlook not connected"
+    : usingMacApp() ? "Sending with the Outlook app" : `Connected: ${outlook.account}`;
+  pill.classList.toggle("ok", !!outlook.ready);
   pill.onclick = () => showStep("connect");
+
+  for (const r of document.querySelectorAll('input[name="method"]')) {
+    r.checked = r.value === outlook.method;
+    if (r.value === "mac_app") r.disabled = !outlook.mac_available;
+    if (r.value === "graph") r.disabled = !outlook.graph_available && !r.checked;
+  }
+  $("#method-mac").hidden = !outlook.mac_available && !usingMacApp();
+  $("#graph-missing").hidden = outlook.graph_available;
 
   $("#client-id").value = outlook.client_id || "";
   $("#tenant").value = outlook.tenant || "common";
   $("#delay").value = outlook.delay_seconds ?? 3;
+  $("#connect-settings").hidden = usingMacApp();
   $("#connect-settings").open = !outlook.configured;
 
   const body = $("#connect-body");
   body.replaceChildren();
-  if (!outlook.configured) {
+  if (usingMacApp()) {
+    body.append(renderMacApp());
+  } else if (!outlook.configured) {
     body.append(el("div", { class: "card" },
       el("p", { class: "big-status" }, "👋 First time? This app needs a one-time setup before it can send from Outlook."),
       el("p", {}, "Open the ", el("b", {}, "README"), " file in the Email Bot folder and follow ",
@@ -194,15 +208,53 @@ function renderOutlook() {
   }
 }
 
-$("#save-settings").onclick = async () => {
+function renderMacApp() {
+  if (!outlook.mac_available) {
+    return el("div", { class: "card" },
+      el("p", { class: "big-status" }, "Microsoft Outlook isn't installed on this computer."),
+      el("p", {}, "Install Outlook and sign in to it, or choose “Sign in with Microsoft” above."));
+  }
+  const email = el("input", { type: "email", value: outlook.my_email, placeholder: "you@example.com" });
+  const checkResult = el("div");
+  return el("div", { class: "card" },
+    el("p", { class: "big-status" }, "✅ Emails will be sent by the Outlook app on this Mac."),
+    el("ul", { class: "steps-list" },
+      el("li", {}, "They go out from the account Outlook uses for new emails. If you have more than one account in Outlook, make sure the right one is the default."),
+      el("li", {}, "Keep Outlook open while emails are being sent."),
+      el("li", {}, "Sent emails appear in Outlook's Sent folder.")),
+    el("label", {}, "Your own email address ", el("small", { class: "muted" }, "(“Send a test to myself” goes here)"), email),
+    el("div", { class: "row" },
+      el("button", { onclick: () => saveSettings({ my_email: email.value }) }, "Save address"),
+      el("button", {
+        onclick: async (ev) => {
+          ev.target.disabled = true;
+          fill(checkResult, el("p", { class: "muted" }, "Asking Outlook… If your Mac asks for permission to control Outlook, click OK."));
+          try {
+            const r = await api("POST", "/api/outlook/check");
+            fill(checkResult, el("p", {}, `👍 Outlook answered (version ${r.version}). You're ready.`));
+          } catch (e) {
+            fill(checkResult, el("ul", { class: "problems" }, el("li", { class: "error" }, e.message)));
+          }
+          ev.target.disabled = false;
+        },
+      }, "Check that Outlook responds"),
+      el("button", { class: "primary", onclick: () => showStep("letter") }, "Continue: write the letter →")),
+    checkResult);
+}
+
+async function saveSettings(changes) {
   try {
-    outlook = await api("POST", "/api/outlook/settings", {
-      client_id: $("#client-id").value, tenant: $("#tenant").value, delay_seconds: $("#delay").value || 3,
-    });
+    outlook = await api("POST", "/api/outlook/settings", changes);
     renderOutlook();
     toast("Settings saved");
   } catch (e) { fail(e); }
-};
+}
+
+for (const r of document.querySelectorAll('input[name="method"]')) {
+  r.onchange = () => saveSettings({ method: r.value });
+}
+$("#save-settings").onclick = () => saveSettings({ client_id: $("#client-id").value, tenant: $("#tenant").value });
+$("#save-delay").onclick = () => saveSettings({ delay_seconds: $("#delay").value || 3 });
 
 // ---------- step 2: letter ----------
 
@@ -566,7 +618,7 @@ function renderReview() {
       `${ready} ${ready === 1 ? "email is" : "emails are"} ready to send.`,
       broken ? el("span", { class: "fail" }, ` ${broken} need${broken === 1 ? "s" : ""} fixing first.`) : "",
       skipped ? ` ${skipped} already sent (will be skipped).` : ""),
-    !outlook.signed_in ? el("p", { class: "fail" }, "Outlook isn't connected yet. Go to step 1 before sending.") : null,
+    !outlook.ready ? el("p", { class: "fail" }, "Outlook isn't connected yet. Go to step 1 before sending.") : null,
   );
 
   fill($("#review-list"), ...emails.map((e, i) => {
@@ -594,16 +646,16 @@ function renderReview() {
 
   const sendAll = $("#send-all");
   sendAll.textContent = `Send ${ready} ${ready === 1 ? "email" : "emails"}`;
-  sendAll.disabled = !ready || broken > 0 || !outlook.signed_in || !!sendPoll;
+  sendAll.disabled = !ready || broken > 0 || !outlook.ready || !!sendPoll;
   sendAll.title = broken ? "Fix the emails marked “Needs fixing” first" : "";
-  $("#send-test").disabled = !emails.length || !outlook.signed_in || !!sendPoll;
+  $("#send-test").disabled = !emails.length || !outlook.ready || !!sendPoll;
 }
 
 $("#send-test").onclick = async () => {
   const e = review.emails[selected];
   try {
     await startSend({ letter_id: letter().id, test: true, row_id: e && e.row_id });
-    toast(`Sending a test to ${outlook.account}…`);
+    toast(`Sending a test to ${outlook.test_address}…`);
   } catch (err) { fail(err); }
 };
 
@@ -611,7 +663,7 @@ $("#send-all").onclick = async () => {
   const ready = review.emails.filter((e) => e.will_send).length;
   const ok = await confirmBox(
     `Send ${ready} ${ready === 1 ? "email" : "emails"} now?`,
-    `They will be sent from ${outlook.account}. This can't be undone. Tip: send a test to yourself first if you haven't.`,
+    `They will be sent ${usingMacApp() ? "by the Outlook app on this Mac" : `from ${outlook.account}`}. This can't be undone. Tip: send a test to yourself first if you haven't.`,
     "Yes, send them");
   if (!ok) return;
   try { await startSend({ letter_id: letter().id, resend: $("#resend").checked }); } catch (err) { fail(err); }
@@ -666,7 +718,7 @@ async function loadHistory() {
   try {
     state = await api("GET", "/api/state");
     await refreshOutlook();
-    showStep(location.hash.slice(1) || (outlook.signed_in ? "letter" : "connect"));
+    showStep(location.hash.slice(1) || (outlook.ready ? "letter" : "connect"));
     const s = await api("GET", "/api/send/status");
     if (s.running) startPolling();
   } catch (e) { fail(e); }

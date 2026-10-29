@@ -9,13 +9,18 @@ Everything runs on your own computer. The app opens in your web browser, but it 
 ## Starting the app
 
 **Mac:** double-click `start.command`.
-(The first time, macOS may say it can't be opened. If so, right-click the file → **Open** → **Open**.)
 
-**Windows:** double-click `start.bat`.
+A Terminal window appears and your browser opens Email Bot. **Keep the Terminal window open while you use the app.** Close it when you're done.
 
-A black terminal window appears and your browser opens Email Bot. **Keep the terminal window open while you use the app.** Close it when you're done.
+**The first time** takes a minute or two. Email Bot sets itself up inside a `.venv` folder in the Email Bot folder and downloads the add-ons it needs. This needs an internet connection but no administrator password, and nothing is installed anywhere else on the Mac. After that, it starts in a few seconds.
 
-The first start takes about a minute while it installs what it needs. If you're told Python is missing, install it from <https://www.python.org/downloads/> (on Windows, tick **"Add Python to PATH"** during install) and try again.
+- **"start.command can't be opened" / "unidentified developer":** open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the message about start.command. Then double-click it again. This only happens once.
+- **"Email Bot needs Python":** most Macs already have it. If yours doesn't, install Python from <https://www.python.org/downloads/macos/>, or run `xcode-select --install` in Terminal. Both may need an administrator password, so ask whoever manages your Mac if you don't have one.
+- **An add-on is "missed":** Email Bot still starts, but that one feature is unavailable (for example, opening `.xlsx` files, where you can still paste from Excel instead). It tries again each time you start Email Bot.
+- **"Setup couldn't finish":** check your internet connection and double-click `start.command` again. If it keeps failing, send whoever helps you the `setup.log` file named in the message.
+- **Something seems stuck or broken:** close Email Bot, delete the `.venv` folder inside the Email Bot folder, and double-click `start.command` to set up from scratch. Your letters and lists in `data` are kept.
+
+**Windows:** double-click `start.bat`. If you're told Python is missing, install it from <https://www.python.org/downloads/> (tick **"Add Python to PATH"**) and try again.
 
 If the browser doesn't open by itself, go to <http://127.0.0.1:5050>.
 
@@ -23,7 +28,9 @@ If the browser doesn't open by itself, go to <http://127.0.0.1:5050>.
 
 ## Using it: the 4 steps
 
-1. **Connect Outlook.** Click **Sign in with Microsoft** and sign in with the account you want to send from. You stay signed in between uses.
+1. **Connect Outlook.** Choose how emails are sent:
+   - **Outlook app on this Mac:** no setup. Emails go out through the Outlook app, from the account it uses for new emails. See [Sending with the Outlook app on a Mac](#sending-with-the-outlook-app-on-a-mac).
+   - **Sign in with Microsoft:** works on any computer, but needs the [one-time setup](#one-time-microsoft-sign-in-setup) first. You stay signed in between uses.
 2. **Write the letter.**
    - Type the subject, letter, and sign-off.
    - To fill in a personal detail, click where it should go, then click one of the `{…}` buttons, e.g. `{First Name}`.
@@ -43,9 +50,26 @@ If the browser doesn't open by itself, go to <http://127.0.0.1:5050>.
 
 ---
 
-## One-time Outlook setup
+## Sending with the Outlook app on a Mac
 
-Microsoft requires every app that sends from Outlook to be registered once. This takes about 5 minutes. Whoever handles IT can do it once and share the resulting ID with everyone using the app.
+This is the easiest option on a Mac. It needs no Microsoft or Azure setup, only the Outlook app, signed in to the account you want to send from.
+
+1. Open Outlook and leave it open while you use Email Bot.
+2. In Email Bot step 1, choose **Outlook app on this Mac**, type your own email address (for test emails), and click **Save address**.
+3. Click **Check that Outlook responds**. The first time, your Mac asks whether Terminal may control "Microsoft Outlook". Click **OK**.
+   If you clicked "Don't Allow" by mistake: open **System Settings → Privacy & Security → Automation**, find **Terminal**, and switch on **Microsoft Outlook**.
+4. In step 4, use **Send a test to myself** and check that it arrives from the right account.
+
+Good to know:
+- Emails are sent from the account Outlook uses for **new** emails. If Outlook has several accounts, make that one the default in Outlook (**Settings → Accounts**). Email Bot can't choose the account itself, because new Outlook doesn't let other apps see its accounts. If you need to pick the sending account, use **Sign in with Microsoft** instead.
+- Email Bot hands each email to Outlook, and Outlook does the sending. "Sent" in Email Bot means Outlook accepted it. If something looks off, check Outlook's **Outbox** and **Sent** folders.
+- This option isn't available on Windows yet. Use **Sign in with Microsoft** there.
+
+---
+
+## One-time Microsoft sign-in setup
+
+Only needed for the **Sign in with Microsoft** option. Microsoft requires every app that sends from Outlook this way to be registered once. This takes about 5 minutes. Whoever handles IT can do it once and share the resulting ID with everyone using the app.
 
 1. Go to <https://entra.microsoft.com> (or <https://portal.azure.com>) and sign in.
    - **Work/school account:** use your work login. If you're not allowed to register apps, ask your IT admin to follow these steps.
@@ -60,7 +84,7 @@ Microsoft requires every app that sends from Outlook to be registered once. This
 5. Click **API permissions** → **Add a permission** → **Microsoft Graph** → **Delegated permissions** → search for and tick **Mail.Send** → **Add permissions**.
    (*User.Read* is already there; leave it.)
    Some workplaces require an admin to click **Grant admin consent**. If sign-in later says you need admin approval, ask your IT admin to do this.
-6. In Email Bot, go to **Step 1 → Connection settings**, paste the client ID, choose the matching **Account type**, and click **Save settings**. Then click **Sign in with Microsoft**.
+6. In Email Bot, go to **Step 1**, choose **Sign in with Microsoft**, open **Microsoft sign-in settings**, paste the client ID, choose the matching **Account type**, and click **Save settings**. Then click **Sign in with Microsoft**.
 
 The app can only send mail as the person who signed in. It can't read your inbox.
 
@@ -68,17 +92,18 @@ The app can only send mail as the person who signed in. It can't read your inbox
 
 ## Good to know
 
-- **Sending limits:** Outlook limits how many emails you can send. Personal Outlook.com accounts allow roughly 300 per day; work accounts usually allow far more, but no more than about 30 per minute. The app waits 3 seconds between emails by default (you can change this in Connection settings). For very large lists, send in batches.
+- **Sending limits:** Outlook limits how many emails you can send. Personal Outlook.com accounts allow roughly 300 per day; work accounts usually allow far more, but no more than about 30 per minute. The app waits 3 seconds between emails by default (you can change this under **Sending speed** in step 1). For very large lists, send in batches.
 - **Attachments** go to everyone and are limited to 3 MB in total.
 - **Where things are saved:** in the `data` folder: letters and the recipient list (`workspace.json`), the sending history (`send_log.csv`, opens in Excel), and your Outlook sign-in. Don't share the `data` folder, since it contains your sign-in. Delete it to start completely fresh.
-- **Formatting:** letters are sent as plain text in a standard Outlook font. Line breaks are kept exactly as you type them.
+- **Formatting:** letters are plain text, and line breaks are kept exactly as you type them. With **Sign in with Microsoft** they use a standard Outlook font (Calibri); with the **Outlook app on a Mac** (new Outlook) they arrive as a plain-text email in the recipient's usual font.
 
 ---
 
 ## For developers
 
-- Python 3.10+, Flask, MSAL, openpyxl. `pip install -r requirements.txt && python app.py`
-- Sends through Microsoft Graph `POST /me/sendMail` with delegated `Mail.Send`; sign-in uses MSAL's interactive flow with a localhost redirect, and tokens are cached in `data/token_cache.json`.
+- Python 3.9+ (Apple's built-in Python works). Flask is required; openpyxl, requests and MSAL are optional, and the app disables the matching feature when one is missing. `pip install -r requirements.txt && python app.py`
+- `start.command` installs `requirements.txt` one line at a time into `.venv`. Lines commented `# optional: <feature>` may fail without stopping startup. Setup counts as finished (and is skipped on later starts) once every line installs; it's redone when `requirements.txt` changes.
+- Two senders, chosen in step 1 (`method` in `data/config.json`): `mac_app` scripts the Outlook app via `osascript` (`emailbot/mac_outlook.py`); everything varying is passed as script arguments, not interpolated. `graph` sends through Microsoft Graph `POST /me/sendMail` with delegated `Mail.Send`; sign-in uses MSAL's interactive flow with a localhost redirect, and tokens are cached in `data/token_cache.json`.
 - The server listens on `127.0.0.1` only, rejects other `Host` headers (DNS rebinding), and requires an `X-EmailBot` header on API writes, so other websites can't trigger a send.
 - Environment variables: `EMAILBOT_PORT` (default 5050), `EMAILBOT_DATA` (data folder), `EMAILBOT_NO_BROWSER=1`.
-- Code: `app.py` (routes, send job), `emailbot/merge.py` (placeholders → email), `emailbot/importer.py` (CSV/Excel/paste), `emailbot/outlook.py` (auth + Graph), `static/app.js` (UI).
+- Code: `app.py` (routes, send job), `emailbot/merge.py` (placeholders → email), `emailbot/importer.py` (CSV/Excel/paste), `emailbot/outlook.py` (settings, Graph auth + send, picks the sender), `emailbot/mac_outlook.py` (Mac Outlook app), `static/app.js` (UI).

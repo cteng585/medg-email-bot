@@ -5,10 +5,13 @@ import mimetypes
 import threading
 import time
 
-import msal
-import requests
+try:  # Only needed for "Sign in with Microsoft"; start.command treats them as optional.
+    import msal
+    import requests
+except ImportError:
+    msal = requests = None
 
-from . import storage
+from . import mac_outlook, storage
 
 SCOPES = ["Mail.Send", "User.Read"]
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -20,9 +23,9 @@ class OutlookError(Exception):
 
 class Outlook:
     def __init__(self):
-        self._cache = msal.SerializableTokenCache()
+        self._cache = msal.SerializableTokenCache() if msal else None
         cache_path = storage._path("token_cache.json")
-        if cache_path.exists():
+        if self._cache and cache_path.exists():
             self._cache.deserialize(cache_path.read_text(encoding="utf-8"))
         self._client = None
         self._login_thread = None
@@ -35,6 +38,8 @@ class Outlook:
         cfg.setdefault("client_id", "")
         cfg.setdefault("tenant", "common")
         cfg.setdefault("delay_seconds", 3)
+        cfg.setdefault("method", "mac_app" if mac_outlook.available() else "graph")
+        cfg.setdefault("my_email", "")
         return cfg
 
     def save_config(self, **changes):
@@ -44,6 +49,10 @@ class Outlook:
         self._client = None
 
     def _app(self):
+        if msal is None or requests is None:
+            raise OutlookError(
+                "“Sign in with Microsoft” isn't available because part of Email Bot's setup is missing. "
+                "Close Email Bot and double-click start.command again while connected to the internet.")
         cfg = self.config()
         if not cfg["client_id"]:
             raise OutlookError("Outlook isn't set up yet. Add the Application (client) ID in step 1.")
@@ -56,7 +65,7 @@ class Outlook:
         return self._client
 
     def _save_cache(self):
-        if self._cache.has_state_changed:
+        if self._cache and self._cache.has_state_changed:
             storage.write_json_text("token_cache.json", self._cache.serialize())
 
     # ---- sign in / out ----
@@ -70,8 +79,17 @@ class Outlook:
 
     def status(self):
         cfg = self.config()
-        acct = self.account() if cfg["client_id"] else None
+        mac = cfg["method"] == "mac_app"
+        acct = self.account() if cfg["client_id"] and not mac else None
         return {
+            "method": cfg["method"],
+            "mac_available": mac_outlook.available(),
+            "graph_available": msal is not None and requests is not None,
+            "my_email": cfg["my_email"],
+            # Ready to send, whichever method is chosen.
+            "ready": mac_outlook.available() if mac else acct is not None,
+            # Where "Send a test to myself" goes.
+            "test_address": cfg["my_email"] if mac else (acct["username"] if acct else ""),
             "configured": bool(cfg["client_id"]),
             "client_id": cfg["client_id"],
             "tenant": cfg["tenant"],
@@ -123,7 +141,22 @@ class Outlook:
 
     # ---- sending ----
 
-    def send(self, to, cc, subject, html, attachments=()):
+    def send(self, to, cc, subject, html, text, attachments=()):
+        if self.config()["method"] == "mac_app":
+            try:
+                mac_outlook.send(to, cc, subject, html, text, attachments)
+            except mac_outlook.MacOutlookError as e:
+                raise OutlookError(str(e)) from None
+        else:
+            self._graph_send(to, cc, subject, html, attachments)
+
+    def check_mac_app(self):
+        try:
+            return mac_outlook.check()
+        except mac_outlook.MacOutlookError as e:
+            raise OutlookError(str(e)) from None
+
+    def _graph_send(self, to, cc, subject, html, attachments=()):
         message = {
             "subject": subject,
             "body": {"contentType": "HTML", "content": html},

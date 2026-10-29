@@ -7,6 +7,7 @@ can't list or pick accounts from a script.
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 APP_PATH = Path("/Applications/Microsoft Outlook.app")
@@ -40,6 +41,9 @@ end run
 """
 
 CHECK_SCRIPT = 'tell application "Microsoft Outlook" to get version'
+
+# The step 1 check builds a complete email exactly as sending does, then deletes it unsent.
+TEST_SCRIPT = SEND_SCRIPT.replace("    send m\n", "    delete m\n")
 
 # AppleScript error numbers worth explaining in plain words.
 _FRIENDLY = {
@@ -107,3 +111,35 @@ def send(to, cc, subject, html, text, attachments=()):
         "\n".join(cc),
         "\n".join(str(Path(p).resolve()) for p in attachments),
     ])
+
+
+def full_check(test_address=None):
+    """Check everything sending needs, stopping at the first problem.
+
+    Returns {"steps": [{name, ok, detail}], "version"}.
+    """
+    result = {"steps": []}
+
+    def record(name, ok, detail=""):
+        result["steps"].append({"name": name, "ok": bool(ok), "detail": detail})
+        return ok
+
+    if not record("Microsoft Outlook is installed", available(),
+                  "" if available() else "Microsoft Outlook isn't in this Mac's Applications folder."):
+        return result
+    try:
+        result["version"] = check()
+    except MacOutlookError as e:
+        record("Outlook responds and Email Bot is allowed to control it", False, str(e))
+        return result
+    record("Outlook responds and Email Bot is allowed to control it", True, f"Version {result['version']}")
+
+    attachment = Path(tempfile.gettempdir()) / "emailbot-check.txt"
+    attachment.write_text("Email Bot check\n", encoding="utf-8")
+    address = test_address or "emailbot-check@example.com"
+    try:
+        _run(TEST_SCRIPT, ["Email Bot check (not sent)", "Email Bot check", address, address, str(attachment)])
+        record("Outlook can create an email (a test email was built and deleted, not sent)", True)
+    except MacOutlookError as e:
+        record("Outlook can create an email", False, str(e))
+    return result

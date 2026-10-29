@@ -1,7 +1,7 @@
 # ---- Your data: letters, recipient lists, send history, Outlook settings ----
 # data/ holds workspace.json (letters + recipients), send_log.csv, sent.json,
-# config.json (client ID, your test address), token_cache.json (Microsoft
-# sign-in tokens), and attachments/. Never publish it.
+# config.json (your test address), and attachments/. Never publish it.
+# token_cache*.json covers sign-in tokens left by older versions.
 data/
 token_cache*.json
 
@@ -23,7 +23,7 @@ token_cache*.json
 *.p12
 *.pfx
 
-# ---- Setup made by start.command / start.bat ----
+# ---- Setup made by start.command ----
 .venv/
 venv/
 *.log
@@ -46,3 +46,7 @@ __pycache__/
 # ---- macOS / Windows ----
 .DS_Store
 Thumbs.db
+
+# ---- Windows .exe build output (PyInstaller) ----
+build/
+dist/

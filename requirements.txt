@@ -1,6 +1,5 @@
-# One package per line. start.command installs them one at a time, so a package
-# marked "optional" can fail without stopping Email Bot; only that feature is lost.
+# One package per line. start.command / start.bat install them one at a time, so a
+# package marked "optional" can fail without stopping Email Bot; only that feature is lost.
 flask>=3.0      # required
 openpyxl>=3.1   # optional: opening Excel (.xlsx) files
-requests>=2.31  # optional: "Sign in with Microsoft"
-msal>=1.28      # optional: "Sign in with Microsoft"
+pywin32>=306; sys_platform == 'win32'   # required on Windows: sending through classic Outlook

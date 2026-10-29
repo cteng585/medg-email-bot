@@ -156,14 +156,13 @@ td.narrow, th.narrow { width: 1%; white-space: nowrap; text-align: center; }
 .fail { color: var(--bad); }
 
 .big-status { font-size: 1.1rem; }
-.methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .75rem; }
-.method {
-  display: flex; gap: .7rem; align-items: flex-start; margin: 0; padding: .9rem 1rem; font-weight: 400;
-  border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer;
-}
-.method:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
-.method:has(input:disabled) { opacity: .5; cursor: not-allowed; }
-.method input { margin-top: .3rem; }
+.check-list { list-style: none; padding: 0; margin: .5rem 0 0; }
+.check-list li { display: flex; gap: .6rem; padding: .35rem 0; }
+.check-list .mark { font-weight: 700; width: 1rem; flex: none; }
+.check-list li.ok .mark { color: var(--ok); }
+.check-list li.error { color: var(--bad); }
+.check-list small { display: block; color: var(--muted); }
+.check-list li.error small { color: var(--bad); }
 .steps-list li { margin-bottom: .4rem; }
 
 dialog {

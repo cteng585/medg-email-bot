@@ -4,12 +4,19 @@ import csv
 import json
 import os
 import re
+import sys
 import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("EMAILBOT_DATA", Path(__file__).resolve().parent.parent / "data"))
+if getattr(sys, "frozen", False):
+    # Running as EmailBot.exe: the code is unpacked to a temporary folder that's
+    # deleted on exit, so keep data in a folder next to the .exe instead.
+    _DEFAULT_DATA = Path(sys.executable).resolve().parent / "data"
+else:
+    _DEFAULT_DATA = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(os.environ.get("EMAILBOT_DATA", _DEFAULT_DATA))
 _lock = threading.Lock()
 
 EXAMPLE_LETTER = {
@@ -55,15 +62,6 @@ def write_json(name, value):
     with _lock:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(value, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, p)
-
-
-def write_json_text(name, text):
-    p = _path(name)
-    tmp = p.with_suffix(".tmp")
-    with _lock:
-        tmp.write_text(text, encoding="utf-8")
-        os.chmod(tmp, 0o600)
         os.replace(tmp, p)
 
 
@@ -136,7 +134,8 @@ def mark_sent(letter_id, email):
 def log_send(letter_name, to, subject, ok, error=""):
     p = _path("send_log.csv")
     new = not p.exists()
-    with _lock, open(p, "a", newline="", encoding="utf-8") as f:
+    # A new file starts with a byte-order mark so Excel reads accented names correctly.
+    with _lock, open(p, "a", newline="", encoding="utf-8-sig" if new else "utf-8") as f:
         w = csv.writer(f)
         if new:
             w.writerow(["time", "letter", "to", "subject", "result", "error"])
@@ -148,6 +147,6 @@ def read_log(limit=300):
     p = _path("send_log.csv")
     if not p.exists():
         return []
-    with open(p, newline="", encoding="utf-8") as f:
+    with open(p, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     return rows[-limit:][::-1]

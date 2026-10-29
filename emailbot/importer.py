@@ -5,15 +5,20 @@ import io
 import re
 from datetime import date, datetime
 
+def _long_date(d):
+    # e.g. "March 5, 2026". (strftime's "%-d" for an unpadded day doesn't work on Windows.)
+    return f"{d:%B} {d.day}, {d.year}"
+
+
 def _cell(value):
     if value is None:
         return ""
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     if isinstance(value, datetime):
-        return value.strftime("%B %-d, %Y") if value.time() == datetime.min.time() else str(value)
+        return _long_date(value) if value.time() == datetime.min.time() else str(value)
     if isinstance(value, date):
-        return value.strftime("%B %-d, %Y")
+        return _long_date(value)
     return str(value).strip()
 
 

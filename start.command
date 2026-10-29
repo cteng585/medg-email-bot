@@ -7,8 +7,6 @@
 
 cd "$(dirname "$0")" || exit 1
 VENV_PY=".venv/bin/python"
-STAMP=".venv/.installed"   # copy of requirements.txt from the last complete setup
-LOG=".venv/setup.log"
 
 close_window() {
   echo
@@ -65,42 +63,9 @@ if [ ! -x "$VENV_PY" ]; then
   fi
 fi
 
-if ! cmp -s requirements.txt "$STAMP"; then
-  echo "Installing the add-ons Email Bot uses (needs an internet connection)..."
-  failed_required=0
-  failed_optional=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    spec=$(echo "${line%%#*}" | xargs)
-    [ -z "$spec" ] && continue
-    note=""
-    [[ "$line" == *"#"* ]] && note=$(echo "${line#*#}" | xargs)
-    if "$VENV_PY" -m pip install --disable-pip-version-check --no-input --retries 2 --timeout 20 \
-         "$spec" </dev/null >>"$LOG" 2>&1; then
-      echo "  [ok]     $spec"
-    elif [[ "$note" == optional* ]]; then
-      echo "  [missed] $spec - Email Bot will work without it, except for: ${note#optional: }"
-      failed_optional=1
-    else
-      echo "  [FAILED] $spec - Email Bot can't start without this."
-      failed_required=1
-    fi
-  done < requirements.txt
-
-  if [ "$failed_required" = 1 ]; then
-    echo
-    echo "Setup couldn't finish. Check that this Mac is connected to the internet,"
-    echo "then double-click start.command again to retry."
-    echo "(Details for whoever helps you: $(pwd)/$LOG)"
-    close_window
-  fi
-  if [ "$failed_optional" = 1 ]; then
-    echo
-    echo "Some extras couldn't be installed. Email Bot will try again next time it starts."
-  else
-    cp requirements.txt "$STAMP"
-  fi
-  echo
-fi
+# Installs anything missing, one package at a time (see emailbot/setup_deps.py).
+"$VENV_PY" -m emailbot.setup_deps
+[ $? = 1 ] && close_window
 
 "$VENV_PY" app.py
 close_window $?

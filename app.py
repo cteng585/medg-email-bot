@@ -1,15 +1,23 @@
-"""Email Bot - a small local web app for sending form letters through Outlook.
+"""Email Bot - a small local web app for sending form letters through the Outlook app
+on a Mac, or classic Outlook on Windows.
 
-Run it with:  python app.py   (or double-click start.command / start.bat)
-It only listens on this computer (127.0.0.1); nobody else on the network can reach it.
+Run it with:  python app.py   (or double-click start.command on a Mac, start.bat on Windows,
+or EmailBot.exe). It only listens on this computer (127.0.0.1); nobody else on the network
+can reach it.
+
+    python app.py --diagnose [--account ADDRESS] [--send-to ADDRESS]   check Windows Outlook step by step
+    python app.py --check-bundle                                       check EmailBot.exe has everything
 """
 
 import logging
 import os
 import socket
+import sys
 import threading
 import time
+import traceback
 import webbrowser
+from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request
 
@@ -17,9 +25,13 @@ from emailbot import importer, merge, storage
 from emailbot.outlook import Outlook, OutlookError
 
 PORT = int(os.environ.get("EMAILBOT_PORT", "5050"))
-MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024  # Graph's limit for attachments sent in one request
+DEBUG = bool(os.environ.get("EMAILBOT_DEBUG"))
+log = logging.getLogger("emailbot")
+MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024  # keeps every email well under mail servers' size limits
 
-app = Flask(__name__)
+# The page's files sit next to this file, or inside the unpacked bundle when running as EmailBot.exe.
+RESOURCES = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+app = Flask(__name__, template_folder=str(RESOURCES / "templates"), static_folder=str(RESOURCES / "static"))
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 outlook = Outlook()
 
@@ -39,6 +51,8 @@ def local_only():
 @app.errorhandler(OutlookError)
 @app.errorhandler(ValueError)
 def user_error(e):
+    if isinstance(e, OutlookError):
+        log.warning("%s", e)
     return jsonify({"error": str(e)}), 400
 
 
@@ -189,7 +203,11 @@ class SendJob:
                 ok, err = True, ""
                 if not test:
                     storage.mark_sent(letter["id"], e["to"])
+            except OutlookError as ex:
+                log.warning("Sending to %s failed: %s", e["to"], ex)
+                ok, err = False, str(ex)
             except Exception as ex:  # noqa: BLE001
+                log.exception("Sending to %s failed unexpectedly", e["to"])
                 ok, err = False, str(ex)
             storage.log_send(letter["name"] + (" (test)" if test else ""), e["to"], e["subject"], ok, err)
             with self.lock:
@@ -211,7 +229,7 @@ def send():
         status = outlook.status()
         me = status["test_address"]
         if not status["ready"]:
-            raise OutlookError("Outlook isn't set up yet. Go to step 1.")
+            raise OutlookError(status["unavailable_reason"])
         if not me:
             raise OutlookError("Enter your own email address in step 1 so the test has somewhere to go.")
         chosen = next((e for e in emails if e["row_id"] == body.get("row_id")), None) or (emails or [None])[0]
@@ -225,8 +243,9 @@ def send():
         to_send = [e for e in emails if e["will_send"]]
         if not to_send:
             raise ValueError("There's nobody left to send to.")
-        if not outlook.status()["ready"]:
-            raise OutlookError("Outlook isn't set up yet. Go to step 1.")
+        status = outlook.status()
+        if not status["ready"]:
+            raise OutlookError(status["unavailable_reason"])
         job.start(letter, to_send, test=False)
     return jsonify(job.state)
 
@@ -259,40 +278,51 @@ def outlook_status():
 def outlook_settings():
     body = request.get_json() or {}
     changes = {}
-    if "client_id" in body:
-        changes["client_id"] = body["client_id"].strip()
-    if "tenant" in body:
-        changes["tenant"] = body["tenant"].strip() or "common"
-    if body.get("method") in ("mac_app", "graph"):
-        changes["method"] = body["method"]
     if "my_email" in body:
         changes["my_email"] = body["my_email"].strip()
+    if "account" in body:
+        changes["account"] = body["account"].strip()
     if "delay_seconds" in body:
         changes["delay_seconds"] = max(0, min(60, float(body["delay_seconds"])))
-    if "client_id" in changes or "tenant" in changes:
-        outlook.logout()
     outlook.save_config(**changes)
     return jsonify(outlook.status())
 
 
 @app.post("/api/outlook/check")
 def outlook_check():
-    return jsonify({"version": outlook.check_mac_app()})
+    result = outlook.check()
+    for step in result["steps"]:
+        if not step["ok"]:
+            log.warning("Outlook check failed: %s: %s", step["name"], step["detail"])
+    return jsonify(result)
 
 
-@app.post("/api/outlook/login")
-def outlook_login():
-    outlook.start_login()
-    return jsonify(outlook.status())
+def check_bundle():
+    """Used by the Windows build: make sure EmailBot.exe contains everything it needs."""
+    client = app.test_client()
+    host = {"Host": "127.0.0.1"}
+    checks = {
+        "page loads": client.get("/", headers=host).status_code == 200,
+        "script loads": client.get("/static/app.js", headers=host).status_code == 200,
+        "styles load": client.get("/static/style.css", headers=host).status_code == 200,
+    }
+    try:
+        import openpyxl  # noqa: F401
+        checks["Excel support"] = True
+    except ImportError:
+        checks["Excel support"] = False
+    if sys.platform == "win32":
+        try:
+            import win32com.client  # noqa: F401
+            checks["Outlook support (pywin32)"] = True
+        except ImportError:
+            checks["Outlook support (pywin32)"] = False
+    for name, ok in checks.items():
+        print(f"  [{'ok' if ok else 'FAILED'}] {name}")
+    return 0 if all(checks.values()) else 1
 
 
-@app.post("/api/outlook/logout")
-def outlook_logout():
-    outlook.logout()
-    return jsonify(outlook.status())
-
-
-if __name__ == "__main__":
+def serve():
     url = f"http://127.0.0.1:{PORT}"
     open_browser = not os.environ.get("EMAILBOT_NO_BROWSER")
     try:
@@ -304,11 +334,51 @@ if __name__ == "__main__":
               "  If the page doesn't load, close the other Email Bot window and try again.\n")
         if open_browser:
             webbrowser.open(url)
-        raise SystemExit(0)
-    print(f"\n  Email Bot is running at {url}\n  Keep this window open while you use it. Close it to stop.\n")
-    # Hide the per-request log and the "development server" warning, which only
-    # alarm non-technical users. Errors still show.
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        return
+    log_file = storage.DATA_DIR / "emailbot.log"
+    storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.DEBUG if DEBUG else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler(log_file, encoding="utf-8")],
+    )
+    print(f"\n  Email Bot is running at {url}\n  Keep this window open while you use it. Close it to stop.\n"
+          f"  Problems are written here and to {log_file}\n")
+    if not DEBUG:
+        # Hide the per-request log and the "development server" warning, which only
+        # alarm non-technical users. Errors still show.
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=PORT, threaded=True)
+
+
+def main():
+    # Windows consoles can't show every character (e.g. curly quotes); never crash over it.
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    args = sys.argv[1:]
+    if args[:1] == ["--diagnose"]:
+        from emailbot import diagnose_windows
+        sys.argv = [sys.argv[0] + " --diagnose"] + args[1:]
+        return diagnose_windows.main()
+    if args[:1] == ["--check-bundle"]:
+        return check_bundle()
+    serve()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        code = main()
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        code = 1
+    if getattr(sys, "frozen", False) and code:
+        # A double-clicked EmailBot.exe closes its window on exit; keep the message readable.
+        try:
+            input("\nSomething went wrong (details above). Press Enter to close this window.")
+        except EOFError:  # no keyboard attached, e.g. run by the GitHub build
+            pass
+    sys.exit(code)

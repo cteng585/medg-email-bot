@@ -1,193 +1,90 @@
-"""Signing in to Microsoft and sending mail through the Microsoft Graph API."""
+"""Sending settings, and sending through the Outlook app on this computer.
 
-import base64
-import mimetypes
-import threading
-import time
+On a Mac this scripts Outlook with AppleScript (mac_outlook); on Windows it
+automates classic Outlook over COM (win_outlook).
+"""
 
-try:  # Only needed for "Sign in with Microsoft"; start.command treats them as optional.
-    import msal
-    import requests
-except ImportError:
-    msal = requests = None
+import sys
 
-from . import mac_outlook, storage
+from . import mac_outlook, storage, win_outlook
 
-SCOPES = ["Mail.Send", "User.Read"]
-GRAPH = "https://graph.microsoft.com/v1.0"
+if sys.platform == "darwin":
+    PLATFORM = "mac"
+elif sys.platform == "win32":
+    PLATFORM = "windows"
+else:
+    PLATFORM = "other"
 
 
 class OutlookError(Exception):
     pass
 
 
+def _available():
+    if PLATFORM == "mac":
+        return mac_outlook.available()
+    if PLATFORM == "windows":
+        return win_outlook.available()
+    return False
+
+
+def _unavailable_reason():
+    if PLATFORM == "mac":
+        return "Microsoft Outlook isn't installed on this Mac."
+    if PLATFORM == "windows":
+        return win_outlook.NOT_INSTALLED
+    return "Email Bot only works on a Mac or a Windows PC with Outlook installed."
+
+
 class Outlook:
-    def __init__(self):
-        self._cache = msal.SerializableTokenCache() if msal else None
-        cache_path = storage._path("token_cache.json")
-        if self._cache and cache_path.exists():
-            self._cache.deserialize(cache_path.read_text(encoding="utf-8"))
-        self._client = None
-        self._login_thread = None
-        self.login_error = ""
-
-    # ---- configuration ----
-
     def config(self):
         cfg = storage.read_json("config.json", {})
-        cfg.setdefault("client_id", "")
-        cfg.setdefault("tenant", "common")
         cfg.setdefault("delay_seconds", 3)
-        cfg.setdefault("method", "mac_app" if mac_outlook.available() else "graph")
         cfg.setdefault("my_email", "")
+        cfg.setdefault("account", "")  # Windows only: send from this account instead of Outlook's default
         return cfg
 
     def save_config(self, **changes):
         cfg = self.config()
         cfg.update(changes)
         storage.write_json("config.json", cfg)
-        self._client = None
-
-    def _app(self):
-        if msal is None or requests is None:
-            raise OutlookError(
-                "“Sign in with Microsoft” isn't available because part of Email Bot's setup is missing. "
-                "Close Email Bot and double-click start.command again while connected to the internet.")
-        cfg = self.config()
-        if not cfg["client_id"]:
-            raise OutlookError("Outlook isn't set up yet. Add the Application (client) ID in step 1.")
-        if self._client is None:
-            self._client = msal.PublicClientApplication(
-                cfg["client_id"],
-                authority=f"https://login.microsoftonline.com/{cfg['tenant'] or 'common'}",
-                token_cache=self._cache,
-            )
-        return self._client
-
-    def _save_cache(self):
-        if self._cache and self._cache.has_state_changed:
-            storage.write_json_text("token_cache.json", self._cache.serialize())
-
-    # ---- sign in / out ----
-
-    def account(self):
-        try:
-            accounts = self._app().get_accounts()
-        except OutlookError:
-            return None
-        return accounts[0] if accounts else None
 
     def status(self):
         cfg = self.config()
-        mac = cfg["method"] == "mac_app"
-        acct = self.account() if cfg["client_id"] and not mac else None
+        available = _available()
         return {
-            "method": cfg["method"],
-            "mac_available": mac_outlook.available(),
-            "graph_available": msal is not None and requests is not None,
+            "platform": PLATFORM,
+            "available": available,
+            "ready": available,
+            "unavailable_reason": "" if available else _unavailable_reason(),
+            "app_label": "classic Outlook on this PC" if PLATFORM == "windows" else "the Outlook app on this Mac",
             "my_email": cfg["my_email"],
-            # Ready to send, whichever method is chosen.
-            "ready": mac_outlook.available() if mac else acct is not None,
             # Where "Send a test to myself" goes.
-            "test_address": cfg["my_email"] if mac else (acct["username"] if acct else ""),
-            "configured": bool(cfg["client_id"]),
-            "client_id": cfg["client_id"],
-            "tenant": cfg["tenant"],
+            "test_address": cfg["my_email"],
+            "account": cfg["account"] if PLATFORM == "windows" else "",
             "delay_seconds": cfg["delay_seconds"],
-            "signed_in": acct is not None,
-            "account": acct["username"] if acct else "",
-            "login_in_progress": bool(self._login_thread and self._login_thread.is_alive()),
-            "login_error": self.login_error,
         }
 
-    def start_login(self):
-        if self._login_thread and self._login_thread.is_alive():
-            return
-        app = self._app()
-        self.login_error = ""
-
-        def run():
-            try:
-                result = app.acquire_token_interactive(SCOPES, prompt="select_account", timeout=300)
-                if "access_token" not in result:
-                    self.login_error = result.get("error_description") or result.get("error") or "Sign-in failed."
-            except Exception as e:  # noqa: BLE001 - surfaced to the user as text
-                self.login_error = str(e)
-            finally:
-                self._save_cache()
-
-        self._login_thread = threading.Thread(target=run, daemon=True)
-        self._login_thread.start()
-
-    def logout(self):
-        try:
-            app = self._app()
-            for acct in app.get_accounts():
-                app.remove_account(acct)
-        except OutlookError:
-            pass
-        self._save_cache()
-
-    def _token(self):
-        app = self._app()
-        acct = self.account()
-        if not acct:
-            raise OutlookError("You're not signed in to Outlook. Go to step 1 and sign in.")
-        result = app.acquire_token_silent(SCOPES, account=acct)
-        self._save_cache()
-        if not result or "access_token" not in result:
-            raise OutlookError("Your Outlook sign-in has expired. Go to step 1 and sign in again.")
-        return result["access_token"]
-
-    # ---- sending ----
+    def check(self):
+        """Check everything sending needs (step 1's button). On Windows this also lists
+        Outlook's accounts. "ok" is false if any check failed."""
+        cfg = self.config()
+        if PLATFORM == "windows":
+            result = win_outlook.full_check(account=cfg["account"] or None, test_address=cfg["my_email"] or None)
+        elif PLATFORM == "mac":
+            result = mac_outlook.full_check(test_address=cfg["my_email"] or None)
+        else:
+            result = {"steps": [{"name": "This computer can run Email Bot", "ok": False,
+                                 "detail": _unavailable_reason()}]}
+        result["ok"] = all(s["ok"] for s in result["steps"])
+        return result
 
     def send(self, to, cc, subject, html, text, attachments=()):
-        if self.config()["method"] == "mac_app":
-            try:
-                mac_outlook.send(to, cc, subject, html, text, attachments)
-            except mac_outlook.MacOutlookError as e:
-                raise OutlookError(str(e)) from None
-        else:
-            self._graph_send(to, cc, subject, html, attachments)
-
-    def check_mac_app(self):
         try:
-            return mac_outlook.check()
-        except mac_outlook.MacOutlookError as e:
+            if PLATFORM == "windows":
+                win_outlook.send(to, cc, subject, html, text, attachments,
+                                 account=self.config()["account"] or None)
+            else:
+                mac_outlook.send(to, cc, subject, html, text, attachments)
+        except (mac_outlook.MacOutlookError, win_outlook.WinOutlookError) as e:
             raise OutlookError(str(e)) from None
-
-    def _graph_send(self, to, cc, subject, html, attachments=()):
-        message = {
-            "subject": subject,
-            "body": {"contentType": "HTML", "content": html},
-            "toRecipients": [{"emailAddress": {"address": to}}],
-            "ccRecipients": [{"emailAddress": {"address": a}} for a in cc],
-        }
-        if attachments:
-            message["attachments"] = [
-                {
-                    "@odata.type": "#microsoft.graph.fileAttachment",
-                    "name": path.name,
-                    "contentType": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
-                    "contentBytes": base64.b64encode(path.read_bytes()).decode("ascii"),
-                }
-                for path in attachments
-            ]
-
-        for attempt in range(4):
-            resp = requests.post(
-                f"{GRAPH}/me/sendMail",
-                headers={"Authorization": f"Bearer {self._token()}"},
-                json={"message": message, "saveToSentItems": True},
-                timeout=60,
-            )
-            if resp.status_code == 202:
-                return
-            if resp.status_code in (429, 503, 504) and attempt < 3:
-                time.sleep(min(int(resp.headers.get("Retry-After", 10)), 120))
-                continue
-            try:
-                detail = resp.json()["error"]["message"]
-            except Exception:  # noqa: BLE001
-                detail = resp.text[:300]
-            raise OutlookError(f"Outlook refused the message ({resp.status_code}): {detail}")

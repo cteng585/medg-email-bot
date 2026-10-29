@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email Bot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">✉️ Email Bot</div>
+  <div id="save-indicator" class="muted"></div>
+  <div id="outlook-pill" class="pill">Checking Outlook…</div>
+</header>
+
+<nav class="steps" id="steps">
+  <button data-step="connect"><span>1</span> Connect Outlook</button>
+  <button data-step="letter"><span>2</span> Write the letter</button>
+  <button data-step="recipients"><span>3</span> Add recipients</button>
+  <button data-step="review"><span>4</span> Review &amp; send</button>
+</nav>
+
+<main>
+  <!-- STEP 1 -->
+  <section id="step-connect" class="step">
+    <h1>Connect your Outlook account</h1>
+    <div id="connect-body"></div>
+    <details class="card subtle" id="connect-settings">
+      <summary>Connection settings (one-time setup)</summary>
+      <p>These come from the app registration in Microsoft's Azure portal. The <b>README</b> file walks through getting them in about 5 minutes. You only do this once.</p>
+      <label>Application (client) ID
+        <input id="client-id" placeholder="e.g. 1a2b3c4d-1234-5678-9abc-def012345678">
+      </label>
+      <label>Account type
+        <select id="tenant">
+          <option value="common">Any account (work, school, or personal Outlook.com)</option>
+          <option value="consumers">Personal Outlook.com / Hotmail only</option>
+          <option value="organizations">Work or school accounts only</option>
+        </select>
+      </label>
+      <label>Seconds to wait between emails
+        <input id="delay" type="number" min="0" max="60" step="1">
+        <small class="muted">Outlook limits how fast you can send. 3 seconds is a safe default.</small>
+      </label>
+      <button class="primary" id="save-settings">Save settings</button>
+    </details>
+  </section>
+
+  <!-- STEP 2 -->
+  <section id="step-letter" class="step">
+    <h1>Write the letter</h1>
+    <div class="row letter-picker">
+      <label class="grow">Letter
+        <select id="letter-select"></select>
+      </label>
+      <button id="letter-new">+ New letter</button>
+      <button id="letter-copy">Make a copy</button>
+      <button id="letter-delete" class="danger-link">Delete</button>
+    </div>
+
+    <div class="card">
+      <label>Letter name <small class="muted">(just for you, recipients don't see it)</small>
+        <input id="letter-name" data-field="name">
+      </label>
+      <label>Subject line
+        <input id="letter-subject" data-field="subject" class="mergeable">
+      </label>
+      <div class="field-chips">
+        <span class="muted">Insert a personal detail where your cursor is:</span>
+        <span id="field-chips"></span>
+      </div>
+      <label>Letter
+        <textarea id="letter-body" data-field="body" class="mergeable" rows="14"></textarea>
+      </label>
+      <p class="hint">💡 Text in curly brackets like <code>{First Name}</code> is swapped for each person's details from step 3.
+        Put <code>{Addendums}</code> where you want the extra paragraphs below to go. If you leave it out, they're added at the end of the letter.</p>
+      <label>Sign-off / signature
+        <textarea id="letter-signature" data-field="signature" class="mergeable" rows="4"></textarea>
+      </label>
+    </div>
+
+    <h2>Optional extra paragraphs (addendums)</h2>
+    <p class="muted">Write paragraphs that only <i>some</i> people should get. In step 3 you tick which person gets which.</p>
+    <div id="addendums"></div>
+    <button id="addendum-add">+ Add an extra paragraph</button>
+
+    <h2>Attachments</h2>
+    <p class="muted">Files attached here go to everyone (up to 3 MB total).</p>
+    <ul id="attachments" class="attachments"></ul>
+    <label class="button-like">📎 Attach a file<input type="file" id="attach-input" multiple hidden></label>
+
+    <div class="next"><button class="primary" data-goto="recipients">Next: add recipients →</button></div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section id="step-recipients" class="step">
+    <h1>Who should get it?</h1>
+    <div class="toolbar">
+      <button id="paste-open" class="primary">📋 Paste from Excel</button>
+      <label class="button-like">📂 Open a spreadsheet file<input type="file" id="import-file" accept=".csv,.xlsx,.xlsm,.txt" hidden></label>
+      <button id="row-add">+ Add a person</button>
+      <button id="col-add">+ Add a column</button>
+      <span class="grow"></span>
+      <button id="rows-clear" class="danger-link">Clear list</button>
+    </div>
+    <p class="hint">Each column becomes a detail you can put in the letter, e.g. a column called <b>First Name</b> fills in <code>{First Name}</code>. Click a column title to rename it.
+      Use the <b>Extras</b> column to give someone an extra paragraph or a personal note.</p>
+    <div class="table-wrap">
+      <table id="recipients-table"></table>
+    </div>
+    <p id="recipient-count" class="muted"></p>
+    <div class="next"><button class="primary" data-goto="review">Next: review &amp; send →</button></div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section id="step-review" class="step">
+    <h1>Review &amp; send</h1>
+    <div id="review-summary" class="card"></div>
+    <div class="review">
+      <ul id="review-list" class="review-list"></ul>
+      <div id="review-preview" class="preview card"></div>
+    </div>
+    <div class="send-bar card">
+      <label class="check"><input type="checkbox" id="resend"> Also send again to people who already got this letter</label>
+      <span class="grow"></span>
+      <button id="send-test">Send a test to myself</button>
+      <button id="send-all" class="primary big">Send emails</button>
+    </div>
+    <div id="progress" class="card" hidden></div>
+    <details class="card subtle" id="history">
+      <summary>Sending history</summary>
+      <div id="history-body"></div>
+    </details>
+  </section>
+</main>
+
+<dialog id="paste-dialog">
+  <h2>Paste from Excel or Google Sheets</h2>
+  <p>In your spreadsheet, select the rows <b>including the title row</b> (e.g. Email, First Name, …), copy them, and paste below.</p>
+  <textarea id="paste-text" rows="10" placeholder="Paste here (Ctrl+V or ⌘V)"></textarea>
+  <label class="check"><input type="checkbox" id="paste-replace" checked> Replace the current list (untick to add to it)</label>
+  <div class="dialog-buttons">
+    <button value="cancel" formmethod="dialog" id="paste-cancel">Cancel</button>
+    <button class="primary" id="paste-ok">Add these people</button>
+  </div>
+</dialog>
+
+<dialog id="confirm-dialog">
+  <h2 id="confirm-title"></h2>
+  <p id="confirm-text"></p>
+  <div class="dialog-buttons">
+    <button id="confirm-no">Cancel</button>
+    <button class="primary" id="confirm-yes">OK</button>
+  </div>
+</dialog>
+
+<dialog id="prompt-dialog">
+  <h2 id="prompt-title"></h2>
+  <input id="prompt-input">
+  <div class="dialog-buttons">
+    <button id="prompt-no">Cancel</button>
+    <button class="primary" id="prompt-yes">OK</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
